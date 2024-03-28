@@ -56,6 +56,7 @@ class InstanceProfileProvider
         $this->timeout = (float) getenv(self::ENV_TIMEOUT) ?: (isset($config['timeout']) ? $config['timeout'] : 1.0);
         $this->profile = isset($config['profile']) ? $config['profile'] : null;
         $this->retries = (int) getenv(self::ENV_RETRIES) ?: (isset($config['retries']) ? $config['retries'] : 3);
+        $this->attempts = 0;
         $this->client = isset($config['client'])
             ? $config['client'] // internal use only
             : \Aws\default_http_handler();
@@ -66,10 +67,9 @@ class InstanceProfileProvider
      *
      * @return PromiseInterface
      */
-    public function __invoke($previousCredentials = null)
+    public function __invoke()
     {
-        $this->attempts = 0;
-        return Promise\Coroutine::of(function () use ($previousCredentials) {
+        return Promise\Coroutine::of(function () {
 
             // Retrieve token or switch out of secure mode
             $token = null;
@@ -83,12 +83,7 @@ class InstanceProfileProvider
                         ]
                     ));
                 } catch (TransferException $e) {
-                    if ($this->getExceptionStatusCode($e) === 500
-                        && $previousCredentials instanceof Credentials
-                    ) {
-                        goto generateCredentials;
-                    }
-                    else if (!method_exists($e, 'getResponse')
+                    if (!method_exists($e, 'getResponse')
                         || empty($e->getResponse())
                         || !in_array(
                             $e->getResponse()->getStatusCode(),
@@ -164,12 +159,7 @@ class InstanceProfileProvider
                 } catch (TransferException $e) {
                     // 401 indicates insecure flow not supported, switch to
                     // attempting secure mode for subsequent calls
-                    if (($this->getExceptionStatusCode($e) === 500
-                            || strpos($e->getMessage(), "cURL error 28") !== false)
-                        && $previousCredentials instanceof Credentials
-                    ) {
-                        goto generateCredentials;
-                    } else if (!empty($this->getExceptionStatusCode($e))
+                    if (!empty($this->getExceptionStatusCode($e))
                         && $this->getExceptionStatusCode($e) === 401
                     ) {
                         $this->secureMode = true;
@@ -182,24 +172,12 @@ class InstanceProfileProvider
                 }
                 $this->attempts++;
             }
-            generateCredentials:
-
-            if (!isset($result)) {
-                $credentials = $previousCredentials;
-            } else {
-                $credentials = new Credentials(
-                    $result['AccessKeyId'],
-                    $result['SecretAccessKey'],
-                    $result['Token'],
-                    strtotime($result['Expiration'])
-                );
-            }
-
-            if ($credentials->isExpired()) {
-                $credentials->extendExpiration();
-            }
-
-            yield $credentials;
+            yield new Credentials(
+                $result['AccessKeyId'],
+                $result['SecretAccessKey'],
+                $result['Token'],
+                strtotime($result['Expiration'])
+            );
         });
     }
 
@@ -259,7 +237,7 @@ class InstanceProfileProvider
             $isRetryable = false;
         }
         if ($isRetryable && $this->attempts < $this->retries) {
-            sleep((int) pow(1.2, $this->attempts));
+            sleep(pow(1.2, $this->attempts));
         } else {
             throw new CredentialsException($message);
         }

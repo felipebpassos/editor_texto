@@ -286,11 +286,9 @@ class TraceMiddleware
     private function flushHttpDebug(CommandInterface $command)
     {
         if ($res = $command['@http']['debug']) {
-            if (is_resource($res)) {
-                rewind($res);
-                $this->write(stream_get_contents($res));
-                fclose($res);
-            }
+            rewind($res);
+            $this->write(stream_get_contents($res));
+            fclose($res);
             $command['@http']['debug'] = null;
         }
     }

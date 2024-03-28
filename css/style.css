@@ -1,0 +1,12 @@
+.container {max-width: 700px;}
+
+.titulo {
+    text-align: center;
+    width: fit-content;
+    margin: auto;
+    margin-bottom: 60px;
+}
+
+.titulo h1 {margin-bottom: 30px;}
+
+.titulo p {max-width: 700px;}
