@@ -1,7 +1,8 @@
 USE editor_texto;
 
-select * from posts;
+select * from imagens;
 
+DROP TABLE posts;
 
 -- Tabela para armazenar os posts
 CREATE TABLE posts (

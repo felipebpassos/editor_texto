@@ -13,20 +13,21 @@
 <body>
     <div class="container mt-5">
         <div class="titulo">
-            <h1>Editor de conteúdo</h1>
+            <h1>Editor de conteúdo CMS</h1>
             <p>
                 Este é um editor de conteúdo html que permite criar e editar publicações em sites, artigos,
                 blogs. Apresentando opções de formatação e anexa imagens e vídeos do youtube.
             </p>
         </div>
-        <form action="form.php" method="post">
+        <form action="form.php" method="post" enctype="multipart/form-data">
             <div class="mb-3">
                 <label for="titulo" class="form-label">Título:</label>
-                <input type="text" id="titulo" name="titulo" class="form-control">
+                <input type="text" id="titulo" name="titulo" class="form-control" required>
             </div>
             <div class="mb-3">
                 <label for="editor" class="form-label">Conteúdo:</label>
                 <textarea id="editor" name="conteudo" class="form-control" rows="10"></textarea>
+                <input type="hidden" id="imageUrls" name="imageUrls">
             </div>
             <button type="submit" class="btn btn-primary">Enviar</button>
         </form>
@@ -78,12 +79,27 @@
         ClassicEditor
             .create(document.querySelector('#editor'), {
                 ckfinder: {
-                    uploadUrl: './ckfinder/core/connector/php/connector.php?command=QuickUpload&type=Files&responseType=json'
+                    uploadUrl: './ckfinder/core/connector/php/connector.php?command=QuickUpload&type=Images&responseType=json'
                 }
             })
             .then(editor => {
                 editor.editing.view.change(writer => {
                     writer.setStyle('min-height', '200px', editor.editing.view.document.getRoot());
+                });
+
+                // Adiciona um evento para atualizar o campo oculto quando o conteúdo do editor muda
+                editor.model.document.on('change:data', () => {
+                    const data = editor.getData();
+
+                    // Regex para encontrar todas as tags de imagem e extrair suas URLs
+                    const regex = /<img[^>]+src="([^">]+)"/g;
+                    let match;
+                    const imageUrls = [];
+                    while ((match = regex.exec(data)) !== null) {
+                        imageUrls.push(match[1]);
+                    }
+
+                    document.getElementById('imageUrls').value = imageUrls.join(',');
                 });
             })
             .catch(error => {

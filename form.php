@@ -1,62 +1,70 @@
 <?php
 // Inclui o arquivo de conexão
 require_once 'Conexao.php';
+require 'vendor/autoload.php';
+
+function formatarNomeArquivo($url, $titulo)
+{
+    // Obtém o nome do arquivo da URL da imagem
+    $nome_arquivo = basename($url);
+
+    // Remove a extensão do arquivo
+    $nome_arquivo_sem_extensao = pathinfo($nome_arquivo, PATHINFO_FILENAME);
+
+    // Remove acentos e transforma em minúsculas
+    $nome_arquivo_sem_acentos = mb_strtolower(iconv('UTF-8', 'ASCII//TRANSLIT', $nome_arquivo_sem_extensao));
+
+    // Substitui espaços e hífens por underscores no título
+    $titulo_sem_espacos = str_replace([' ', '-'], '_', $titulo);
+
+    // Substitui espaços e hífens por underscores no nome do arquivo
+    $nome_arquivo_sem_espacos = str_replace([' ', '-'], '_', $nome_arquivo_sem_acentos);
+
+    // Obtém a extensão do arquivo
+    $extensao = pathinfo($nome_arquivo, PATHINFO_EXTENSION);
+
+    // Concatena o nome da imagem, título do post e extensão do arquivo
+    $novo_nome_arquivo = $nome_arquivo_sem_espacos . '_' . $titulo_sem_espacos . '.' . $extensao;
+
+    return $novo_nome_arquivo;
+}
+
+// Configuração do HTML Purifier
+$config = HTMLPurifier_Config::createDefault();
+// Lista de elementos proibidos
+$forbiddenElements = ['script', 'body', 'header', 'nav'];
+// Proíbe os elementos especificados
+$config->set('HTML.ForbiddenElements', $forbiddenElements);
+// Permite todos os outros elementos
+$config->set('HTML.Allowed', '');
+// Permite atributos específicos
+$config->set('HTML.AllowedAttributes', 'src,href,title,alt');
+// Instancia o HTML Purifier com a configuração especificada
+$purifier = new HTMLPurifier($config);
 
 // Verifica se os dados foram enviados via POST
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
     // Sanitize dos dados recebidos
     $titulo = htmlspecialchars($_POST["titulo"]);
+
+    // Use HTML Purifier para limpar o conteúdo HTML
     $conteudo = htmlspecialchars($_POST["conteudo"]);
-    
-    // Verifica se foi enviado algum arquivo de imagem
-    if(isset($_FILES['imagens'])){
-        // Define o diretório de destino para o upload
-        $upload_dir = 'uploads/';
 
-        // Verifica se o diretório de destino existe e é gravável
-        if (!is_dir($upload_dir) || !is_writable($upload_dir)) {
-            echo "Erro: O diretório de upload não existe ou não é gravável.";
-            exit;
-        }
+    // Encontra todas as URLs das imagens no conteúdo do post
+    preg_match_all('/<img[^>]+src="([^">]+)"/', $conteudo, $matches);
+    $imagens = $matches[1]; // Obtém todas as URLs das imagens
 
-        // Array para armazenar as URLs das imagens
-        $urlsImagens = array();
+    // Itera sobre as imagens encontradas
+    foreach ($imagens as $imagem) {
+        // Obtém o novo nome do arquivo
+        $novo_nome_arquivo = formatarNomeArquivo($imagem, $titulo);
 
-        // Processa cada imagem enviada
-        foreach ($_FILES['imagens']['tmp_name'] as $key => $tmp_name) {
-            // Verifica se ocorreu algum erro durante o upload
-            if ($_FILES['imagens']['error'][$key] === UPLOAD_ERR_OK) {
-                // Verifica se o arquivo é uma imagem PNG ou JPEG
-                $allowed_types = array('image/png', 'image/jpeg');
-                $file_type = $_FILES['imagens']['type'][$key];
-                if (!in_array($file_type, $allowed_types)) {
-                    echo "Erro: Somente arquivos PNG e JPEG são permitidos.";
-                    exit;
-                }
+        // Define o novo caminho da imagem após o upload (./uploads/nome_do_arquivo-nome_do_post.extensao)
+        $novo_caminho_imagem = "./uploads/" . $novo_nome_arquivo;
 
-                // Verifica o tamanho do arquivo (limite de 3 MB)
-                $file_size = $_FILES['imagens']['size'][$key];
-                if ($file_size > 3 * 1024 * 1024) {
-                    echo "Erro: O arquivo deve ter no máximo 3 MB.";
-                    exit;
-                }
-
-                // Gera um nome único para o arquivo baseado no timestamp atual
-                $file_name = time() . '_' . $_FILES['imagens']['name'][$key];
-
-                // Move o arquivo para o diretório de destino
-                if (move_uploaded_file($tmp_name, $upload_dir . $file_name)) {
-                    // Adiciona a URL da imagem ao array
-                    $urlsImagens[] = $upload_dir . $file_name;
-                } else {
-                    echo "Erro: Falha ao mover o arquivo para o diretório de upload.";
-                    exit;
-                }
-            } else {
-                echo "Erro: Ocorreu um erro durante o upload do arquivo.";
-                exit;
-            }
-        }
+        // Substitui o URL antigo pelo novo no conteúdo
+        $conteudo = str_replace($imagem, $novo_caminho_imagem, $conteudo);
     }
 
     // Prepara a consulta SQL para inserir o post
@@ -68,10 +76,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Obtém o ID do post recém-inserido
         $post_id = $stmt->insert_id;
 
-        // Insere as URLs das imagens na tabela de imagens, associadas ao ID do post
-        foreach ($urlsImagens as $urlImagem) {
+        // Itera sobre as imagens encontradas e faz upload delas
+        // Itera sobre as imagens encontradas
+        foreach ($imagens as $imagem) {
+            // Obtém o novo nome do arquivo
+            $novo_nome_arquivo = formatarNomeArquivo($imagem, $titulo);
+
+            // Define o caminho de destino para fazer upload (./uploads/nome_do_arquivo-nome_do_post.extensao)
+            $caminho_destino = "./uploads/" . $novo_nome_arquivo;
+
+            // Faz o download da imagem e salva no destino
+            file_put_contents($caminho_destino, file_get_contents($imagem));
+
+            // Insere a URL da imagem no banco de dados associada ao post ID
             $stmtImagens = $conn->prepare("INSERT INTO imagens (post_id, url) VALUES (?, ?)");
-            $stmtImagens->bind_param("is", $post_id, $urlImagem);
+            $stmtImagens->bind_param("is", $post_id, $caminho_destino);
             $stmtImagens->execute();
             $stmtImagens->close();
         }
@@ -87,3 +106,4 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $stmt->close();
     $conn->close();
 }
+
